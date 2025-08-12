@@ -1,0 +1,298 @@
+<!doctype html>
+
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Super Canggih v2 — P2P, Shader, Collab, SVG & Macros</title>
+  <meta name="description" content="Demo eksperimen: WebRTC P2P (copy-paste signaling), live GLSL fragment shader editor, BroadcastChannel collab editor, procedural SVG, keyboard macro recorder, drag-drop files." />
+  <style>
+    :root{--bg:#071022;--panel:#0b1220;--accent:#16a34a;--muted:#94a3b8}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#041021,#071022);color:#e6eef8}
+    header{padding:18px;display:flex;align-items:center;gap:12px}
+    header h1{margin:0;font-size:18px}
+    .wrap{display:grid;grid-template-columns:360px 1fr;gap:14px;padding:14px}
+    .panel{background:rgba(255,255,255,0.03);border-radius:10px;padding:12px;border:1px solid rgba(255,255,255,0.02)}
+    .section{margin-bottom:12px}
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    textarea,input,select,button{width:100%;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    button{cursor:pointer}
+    .small{font-size:12px;color:var(--muted)}
+    #mainArea{display:grid;grid-template-rows:1fr 1fr;gap:12px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;height:100%}
+    canvas, iframe {width:100%;height:100%;border-radius:8px;background:#000}
+    .editor{height:220px;resize:vertical;min-height:120px}
+    .toolbar{display:flex;gap:8px;align-items:center}
+    .badge{font-size:11px;background:rgba(255,255,255,0.02);padding:4px 8px;border-radius:999px}
+    .file-drop{border:2px dashed rgba(255,255,255,0.03);padding:12px;border-radius:8px;text-align:center;min-height:80px;display:flex;align-items:center;justify-content:center}
+    .svg-out{background:#091023;padding:8px;border-radius:8px}
+    .muted{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Super Canggih v2</h1>
+    <div class="badge">Features: P2P DataChannel (manual), GLSL live, Collab (BroadcastChannel), SVG gen, Macro rec, Drag&Drop</div>
+  </header>  <div class="wrap">
+    <div>
+      <div class="panel section">
+        <h3>P2P Chat & File (copy/paste signaling)</h3>
+        <div class="small">Tidak perlu server — gunakan copy-paste SDP untuk signaling. Bekerja di localhost/https terbaik.</div>
+        <label>Role</label>
+        <select id="webrtcRole"><option value="offer">Buat Offer (Host)</option><option value="answer">Jadi Peer (Answer)</option></select>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button id="createOffer">Create Offer</button>
+          <button id="createAnswer">Create Answer (use after paste offer)</button>
+        </div>
+        <label style="margin-top:8px">Local SDP (copy ini ke peer)</label>
+        <textarea id="localSDP" rows="6"></textarea>
+        <label style="margin-top:8px">Remote SDP (paste dari peer)</label>
+        <textarea id="remoteSDP" rows="6"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button id="applyRemote">Apply Remote SDP</button>
+          <button id="closeConn">Close</button>
+        </div>
+        <label style="margin-top:8px">Chat</label>
+        <div style="display:flex;gap:8px;">
+          <input id="msgInput" placeholder="ketik pesan..." />
+          <button id="sendMsg">Send</button>
+        </div>
+        <div id="chatLog" style="height:120px;margin-top:8px;overflow:auto;background:#03121e;padding:8px;border-radius:6px;font-size:13px"></div>
+        <div style="margin-top:8px">
+          <label class="small">File transfer (kirim file ke peer)</label>
+          <input type="file" id="fileInput" />
+        </div>
+      </div><div class="panel section">
+    <h3>Collaborative Editor (BroadcastChannel)</h3>
+    <div class="small">Buka beberapa tab di same-origin (localhost) untuk kolaborasi realtime. Fallback: localStorage events.</div>
+    <label>Room ID</label>
+    <input id="collabRoom" placeholder="room-1" />
+    <div class="toolbar" style="margin-top:8px">
+      <button id="joinRoom">Join</button>
+      <button id="leaveRoom">Leave</button>
+      <div class="small" id="collabStatus">Not connected</div>
+    </div>
+    <label style="margin-top:8px">Editor (ketik di sini dan lihat di tab lain)</label>
+    <div id="collabEditor" class="editor" contenteditable="true" style="background:#041223;padding:8px;overflow:auto;border-radius:6px;outline:none;min-height:120px"></div>
+  </div>
+
+  <div class="panel section">
+    <h3>Keyboard Macro Recorder</h3>
+    <div class="small">Rekam sequence keyboard (hanya teks & special keys) lalu replay ke collab editor.</div>
+    <div style="display:flex;gap:8px;">
+      <button id="startRec">Start Rec</button>
+      <button id="stopRec">Stop</button>
+      <button id="playRec">Play</button>
+      <button id="clearRec">Clear</button>
+    </div>
+    <label style="margin-top:8px">Recorded events</label>
+    <textarea id="macroLog" rows="6"></textarea>
+  </div>
+
+  <div class="panel section">
+    <h3>Drag & Drop / Preview</h3>
+    <div class="file-drop" id="dropZone">Drop file(s) di sini atau pilih</div>
+    <div id="dropPreview" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<div id="mainArea">
+  <div class="grid2">
+    <div class="panel">
+      <h3>GLSL Fragment Shader Live Editor</h3>
+      <label class="small">Edit fragment shader, klik Run. Shader default mudah diedit.</label>
+      <textarea id="fragCode" class="editor">precision mediump float;
+
+uniform vec2 u_res; uniform float u_time; void main(){ vec2 uv = gl_FragCoord.xy / u_res; vec3 col = 0.5 + 0.5*cos(u_time + uv.xyx + vec3(0,2,4)); gl_FragColor = vec4(col,1.0); } </textarea> <div style="display:flex;gap:8px;margin-top:8px;"> <button id="runShader">Run Shader</button> <button id="stopShader">Stop</button> <button id="exportShader">Export PNG</button> </div> <div style="height:220px;margin-top:8px;"> <canvas id="shaderCanvas"></canvas> </div> </div>
+
+<div class="panel">
+      <h3>Procedural SVG Generator</h3>
+      <label class="small">Atur param dan generate vektor. Bisa export PNG/SVG.</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <input id="svgSeed" placeholder="seed number" value="42" />
+        <input id="svgNodes" placeholder="nodes (e.g. 5)" value="6" />
+        <button id="genSvg">Generate</button>
+      </div>
+      <div class="svg-out" id="svgOut" style="min-height:220px"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button id="exportSvg">Export SVG</button>
+        <button id="exportPng">Export PNG</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="grid2">
+    <div class="panel" id="consolePanel">
+      <h3>Event Console</h3>
+      <div id="events" style="height:100%;overflow:auto;background:#02101a;padding:8px;border-radius:6px;font-size:13px"></div>
+    </div>
+    <div class="panel">
+      <h3>Quick Tips & Notes</h3>
+      <div class="small">- Untuk P2P: gunakan browser modern (Chrome/Edge). Paste offer <-> create answer.\n- Collab: buka 2 tab di localhost dan join same room.\n- Shader: gunakan fragment shader sederhana. Jika blank, cek Console (F12).</div>
+    </div>
+  </div>
+</div>
+
+  </div><script>
+// -------------------- Utilities --------------------
+function logEvent(msg){ const el=document.getElementById('events'); const d=new Date().toLocaleTimeString(); el.innerText = `[${d}] ${msg}\n` + el.innerText; }
+function q(id){ return document.getElementById(id); }
+
+// -------------------- P2P WebRTC (manual signaling) --------------------
+let pc=null; let dc=null;
+async function ensurePC(){ if(pc){ return pc; }
+  pc = new RTCPeerConnection();
+  pc.onicecandidate = e=>{ if(e.candidate) { logEvent('ICE candidate: '+e.candidate.candidate); } };
+  pc.ondatachannel = ev=>{ dc = ev.channel; setupDC(); };
+  pc.onconnectionstatechange = ()=> logEvent('Conn state: '+pc.connectionState);
+  return pc;
+}
+function setupDC(){ if(!dc) return; dc.onopen = ()=>{ logEvent('DataChannel open'); appendChat('System','Data channel open'); }; dc.onmessage = e=>{ appendChat('Peer', e.data); }; dc.onclose = ()=>{ logEvent('DataChannel closed'); } }
+function appendChat(who,msg){ const el=q('chatLog'); const p=document.createElement('div'); p.innerText = who+': '+msg; el.appendChild(p); el.scrollTop = el.scrollHeight; }
+
+q('createOffer').onclick = async ()=>{
+  await ensurePC();
+  dc = pc.createDataChannel('chat'); setupDC();
+  const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
+  await waitForIceComplete(pc);
+  q('localSDP').value = JSON.stringify(pc.localDescription);
+  logEvent('Offer created');
+};
+
+q('createAnswer').onclick = async ()=>{
+  const remote = q('remoteSDP').value;
+  if(!remote){ alert('Paste offer dulu di Remote SDP untuk jawabannya'); return; }
+  const offer = JSON.parse(remote);
+  await ensurePC();
+  await pc.setRemoteDescription(offer);
+  const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
+  await waitForIceComplete(pc);
+  q('localSDP').value = JSON.stringify(pc.localDescription);
+  logEvent('Answer created');
+};
+
+q('applyRemote').onclick = async ()=>{
+  const txt=q('remoteSDP').value; if(!txt) return alert('Paste remote SDP');
+  try{ const desc = JSON.parse(txt); await ensurePC(); await pc.setRemoteDescription(desc); logEvent('Remote SDP applied'); }catch(e){ alert('Invalid SDP'); }
+};
+
+q('closeConn').onclick = ()=>{ if(dc) dc.close(); if(pc) pc.close(); pc=null; dc=null; logEvent('Connection closed'); };
+
+q('sendMsg').onclick = ()=>{ const m=q('msgInput').value; if(!m) return; if(dc && dc.readyState==='open'){ dc.send(m); appendChat('You',m); q('msgInput').value=''; } else appendChat('System','DataChannel belum terbuka'); };
+
+q('fileInput').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return; if(!dc || dc.readyState!=='open'){ appendChat('System','DataChannel belum terbuka'); return; }
+  appendChat('You','Sending file: '+f.name+' ('+f.size+' bytes)');
+  const chunkSize = 64*1024; let offset=0; const reader = new FileReader(); reader.onload = ev=>{
+    const data = ev.target.result; // ArrayBuffer
+    // send in chunks
+    for(let i=0;i<data.byteLength;i+=chunkSize){ const end=Math.min(i+chunkSize,data.byteLength); const slice = data.slice(i,end); dc.send(slice); }
+    // signal EOF
+    dc.send(JSON.stringify({__file_meta:{name:f.name,size:f.size}}));
+    appendChat('System','File sent (chunks)');
+  };
+  reader.readAsArrayBuffer(f);
+});
+
+function waitForIceComplete(pc){ return new Promise(res=>{
+  const check = ()=>{ if(pc.iceGatheringState==='complete') res(); else setTimeout(check,100); }; check();
+  setTimeout(()=>res(),2000); // fallback
+}); }
+
+// -------------------- Collab editor (BroadcastChannel + fallback) --------------------
+let bc=null; let collabRoom='room-1';
+q('joinRoom').onclick = ()=>{
+  collabRoom = q('collabRoom').value || 'room-1';
+  try{ if('BroadcastChannel' in window){ bc = new BroadcastChannel('collab-'+collabRoom); bc.onmessage = ev=>{ if(ev.data && ev.data.type==='edit'){ q('collabEditor').innerText = ev.data.text; logEvent('collab: remote edit'); } }; q('collabStatus').innerText = 'Joined '+collabRoom; logEvent('Joined room '+collabRoom); }
+  catch(e){ console.warn(e); q('collabStatus').innerText = 'BroadcastChannel not available'; }
+};
+q('leaveRoom').onclick = ()=>{ if(bc) bc.close(); bc=null; q('collabStatus').innerText='Not connected'; logEvent('Left room'); };
+
+// send changes with debounce
+let collabTimer=null;
+q('collabEditor').addEventListener('input', ()=>{
+  if(collabTimer) clearTimeout(collabTimer);
+  collabTimer = setTimeout(()=>{
+    const txt = q('collabEditor').innerText;
+    if(bc) bc.postMessage({type:'edit', text:txt}); else localStorage.setItem('collab-'+collabRoom, JSON.stringify({t:Date.now(),text:txt}));
+    logEvent('collab: local edit sent');
+  },150);
+});
+
+window.addEventListener('storage', (e)=>{
+  if(e.key && e.key.startsWith('collab-')){
+    try{ const obj = JSON.parse(e.newValue); q('collabEditor').innerText = obj.text; logEvent('collab: received via localStorage'); }catch(_){}
+  }
+});
+
+// -------------------- Macro recorder --------------------
+let recording=false; let macro=[];
+q('startRec').onclick = ()=>{ recording=true; macro=[]; q('macroLog').value=''; logEvent('Macro recording started'); };
+q('stopRec').onclick = ()=>{ recording=false; logEvent('Macro stopped, '+macro.length+' events'); q('macroLog').value = JSON.stringify(macro); };
+q('clearRec').onclick = ()=>{ macro=[]; q('macroLog').value=''; logEvent('Macro cleared'); };
+q('playRec').onclick = ()=>{ if(!macro.length) return alert('No macro'); // replay into collabEditor
+  const editor = q('collabEditor'); editor.focus(); for(let ev of macro){ if(ev.type==='insert'){ editor.innerText = editor.innerText + ev.value; } }
+  logEvent('Macro played'); };
+
+window.addEventListener('keydown', (e)=>{
+  if(recording){ macro.push({type:'key', key:e.key, code:e.code, time:Date.now()}); q('macroLog').value = JSON.stringify(macro); }
+});
+
+// -------------------- Drag & Drop --------------------
+const drop = q('dropZone'); drop.addEventListener('dragover', e=>{ e.preventDefault(); drop.style.borderColor='#31c48d'; });
+drop.addEventListener('dragleave', e=>{ drop.style.borderColor=''; });
+drop.addEventListener('drop', e=>{ e.preventDefault(); drop.style.borderColor=''; handleFiles(e.dataTransfer.files); });
+function handleFiles(list){ const preview=q('dropPreview'); preview.innerHTML=''; for(let f of list){ const p=document.createElement('div'); p.style.marginBottom='8px'; if(f.type.startsWith('image/')){ const img=document.createElement('img'); img.style.maxWidth='100%'; img.style.borderRadius='6px'; const url=URL.createObjectURL(f); img.src=url; p.appendChild(img); } else { const pre=document.createElement('pre'); pre.style.whiteSpace='pre-wrap'; pre.innerText = f.name+' ('+f.type+') — size: '+f.size; p.appendChild(pre); if(f.type.startsWith('text/') || f.type==="application/json"){
+    const reader=new FileReader(); reader.onload = ev=>{ const t=document.createElement('pre'); t.style.whiteSpace='pre-wrap'; t.innerText = ev.target.result; p.appendChild(t); }; reader.readAsText(f);
+  } }
+  preview.appendChild(p); }
+}
+
+// -------------------- Shader live (WebGL) --------------------
+let gl=null, shaderProgram=null, anim=false, startTime=0;
+function createGL(canvas){ gl = canvas.getContext('webgl'); if(!gl){ alert('WebGL tidak tersedia.'); return; } }
+function compileShader(src, type){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){ const err = gl.getShaderInfoLog(s); throw new Error(err); } return s; }
+function runShader(){ const canvas=q('shaderCanvas'); if(!gl) createGL(canvas);
+  const frag = q('fragCode').value;
+  const vs = `attribute vec2 a_pos; void main(){ gl_Position = vec4(a_pos,0.0,1.0); }`;
+  try{
+    const vsh = compileShader(vs, gl.VERTEX_SHADER);
+    const fsh = compileShader('#ifdef GL_ES\nprecision mediump float;\n#endif\nuniform vec2 u_res; uniform float u_time;\n'+frag, gl.FRAGMENT_SHADER);
+    if(shaderProgram) gl.deleteProgram(shaderProgram);
+    shaderProgram = gl.createProgram(); gl.attachShader(shaderProgram, vsh); gl.attachShader(shaderProgram, fsh); gl.linkProgram(shaderProgram);
+    if(!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)){ throw new Error(gl.getProgramInfoLog(shaderProgram)); }
+    gl.useProgram(shaderProgram);
+    // buffer a full-screen quad
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); const verts = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]); gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(shaderProgram, 'a_pos'); gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+    startTime = performance.now(); anim=true; drawLoop();
+  }catch(e){ logEvent('Shader compile error: '+e.message); alert('Shader error:\n'+e.message); }
+}
+function drawLoop(){ if(!anim) return; const now = (performance.now()-startTime)/1000.0; const canvas=q('shaderCanvas'); gl.viewport(0,0,canvas.width=canvas.clientWidth, canvas.height=canvas.clientHeight);
+  const uRes = gl.getUniformLocation(shaderProgram,'u_res'); if(uRes) gl.uniform2f(uRes, canvas.width, canvas.height);
+  const uTime = gl.getUniformLocation(shaderProgram,'u_time'); if(uTime) gl.uniform1f(uTime, now);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(drawLoop);
+}
+q('runShader').onclick = runShader; q('stopShader').onclick = ()=>{ anim=false; logEvent('Shader stopped'); };
+q('exportShader').onclick = ()=>{ const c=q('shaderCanvas'); const data=c.toDataURL('image/png'); const a=document.createElement('a'); a.href=data; a.download='shader.png'; a.click(); };
+
+// -------------------- SVG generator --------------------
+function rng(seed){ let x=seed%2147483647; if(x<=0) x+=2147483646; return ()=>{ x = x * 16807 % 2147483647; return (x-1)/2147483646; }; }
+q('genSvg').onclick = ()=>{
+  const seed = parseInt(q('svgSeed').value)||42; const nodes = parseInt(q('svgNodes').value)||6; const r=rng(seed);
+  const w=600,h=400; let path=''; const cx=w/2, cy=h/2; const maxR=Math.min(w,h)*0.4; for(let i=0;i<nodes;i++){ const a = r()*Math.PI*2; const rad = 60 + r()*maxR; const x = cx + Math.cos(a)*rad; const y = cy + Math.sin(a)*rad; path += (i===0?`M ${x},${y}`:` L ${x},${y}`); }
+  path += ' Z'; const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#031022"/><path d="${path}" fill="#7c3aed" opacity="0.9" stroke="#0ff" stroke-width="2"/></svg>`;
+  q('svgOut').innerHTML = svg;
+};
+q('exportSvg').onclick = ()=>{ const svgEl = q('svgOut').querySelector('svg'); if(!svgEl) return alert('Generate dulu'); const data = 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgEl.outerHTML); const a=document.createElement('a'); a.href=data; a.download='graphic.svg'; a.click(); };
+q('exportPng').onclick = ()=>{ const svgEl = q('svgOut').querySelector('svg'); if(!svgEl) return alert('Generate dulu'); const w=svgEl.getAttribute('width'), h=svgEl.getAttribute('height'); const img = new Image(); img.onload = ()=>{ const c=document.createElement('canvas'); c.width=w; c.height=h; const ctx=c.getContext('2d'); ctx.drawImage(img,0,0); const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download='graphic.png'; a.click(); }; img.src = 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgEl.outerHTML);
+};
+
+// -------------------- Init tips --------------------
+logEvent('Super Canggih v2 ready. Tips: gunakan localhost (python -m http.server 8000) untuk fitur P2P & BroadcastChannel terbaik.');
+
+</script></body>
+</html>
